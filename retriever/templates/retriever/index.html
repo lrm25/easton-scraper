@@ -1,0 +1,9 @@
+<ul>
+    {% for easton_class in easton_classes %}
+        <p>
+            Name:  {{ easton_class.name }}
+            Start time:  {{ easton_class.start_time }}
+            End time:  {{  easton_class.end_time }}
+        </p>
+    {% endfor %}
+</ul>
