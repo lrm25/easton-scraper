@@ -5,48 +5,110 @@ from bs4 import BeautifulSoup
 import logging
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
+from datetime import datetime
+import pytz
 
 logger = logging.getLogger('django')
 
 
 class EastonClass:
     def __init__(self):
-        name = ""
-        start_time = ""
-        end_time = ""
+        location = "Unspecified"
+        category = "Unspecified"
+        name = "Unspecified"
+        date = "Unspecified"
+        start_time = "Unspecified"
+        end_time = "Unspecified"
+
+
+def get_calendar_daily_data(gym_location, webpage_location, added_class_list):
+    easton_request = Request(webpage_location, headers={'User-Agent': 'lmccrone'})
+    schedule = urlopen(easton_request)
+    soup = BeautifulSoup(schedule.read())
+    today_date = datetime.now(pytz.timezone('US/Mountain')).strftime('%Y-%m-%d')
+    today_schedule = soup.find('div', {'date': today_date})
+    calendar_classes = today_schedule.find_all('div', {'class': 'item'})
+    # strip string "calendar.cfm" (12 chars)
+    webpage_base = webpage_location[:-12]
+    for calendar_class in calendar_classes:
+
+        # Class info URL query is in single quotes in 'onclick' attribute
+        class_link_attr = calendar_class.get('onclick')
+        logger.info("CLASS LINK ATTR: " + class_link_attr)
+        class_link_query = class_link_attr.split('\'')[1]
+        class_info_request = Request(webpage_base + class_link_query)
+        class_info = urlopen(class_info_request)
+        class_soup = BeautifulSoup(class_info.read())
+        class_rows = class_soup.find_all('tr')
+        class_time = ""
+        for class_row in class_rows:
+            if class_row.find('td').text == 'Time':
+                class_time = class_row.find('td', {'class': 'bold'}).text
+                break
+
+        easton_class = EastonClass()
+        easton_class.location = gym_location
+        easton_class.category = calendar_class.get('class')[2]
+        easton_class.name = calendar_class.text
+        easton_class.date = today_date
+        class_time_list = class_time.split(" - ")
+        easton_class.start_time = class_time_list[0]
+        easton_class.end_time = class_time_list[1]
+        added_class_list.append(easton_class)
+
+
+# Get data from a MindBody daily page
+def get_mb_daily_data(gym_location, webpage_location, added_class_list):
+    # Pull the main schedule page on easton's website to get the internal MindBody link
+    easton_request = Request(webpage_location, headers={'User-Agent': "lmccrone"})
+    schedule = urlopen(easton_request)
+    soup = BeautifulSoup(schedule.read())
+    today_date = datetime.now(pytz.timezone('US/Mountain')).strftime('%Y-%m-%d')
+    schedule_id = soup.find_all('healcode-widget')[0]['data-widget-id']
+    logger.info("FOUND:  %s" % soup.find_all(schedule_id))
+
+    # Pull the MindBody data directly
+    request_str = "https://widgets.healcode.com/widgets/schedules/" + schedule_id + "/print"
+    mind_body_request = Request(request_str)
+    schedule = urlopen(mind_body_request)
+    soup = BeautifulSoup(schedule.read())
+    table_rows = soup.find_all('tr')
+    current_category = ""
+    for table_row in table_rows:
+        logger.info(table_row)
+
+        if 'hc_class' in table_row.get('class'):
+            easton_class = EastonClass()
+            easton_class.location = gym_location
+            easton_class.category = current_category
+            easton_class.name = table_row.find('span', {'class': 'classname'}).text
+            easton_class.date = today_date
+            easton_class.start_time = table_row.find('span', {'class': 'hc_starttime'}).text
+            # [2:] - remove dash at beginning of end time
+            easton_class.end_time = table_row.find('span', {'class': 'hc_endtime'}).text[2:]
+            added_class_list.append(easton_class)
+
+        if 'group_by_class_type' in table_row.get('class'):
+            current_category = table_row.find('td').text
 
 
 # Create your views here.
 def get_raw_data(request):
-    schedule = None
     try:
-        # Pull the main schedule page on easton's website to get the internal MindBody link
-        easton_request = Request("https://eastonbjj.com/denver/schedule", headers={'User-Agent': "lmccrone"})
-        schedule = urlopen(easton_request)
-        soup = BeautifulSoup(schedule.read())
-        schedule_id = soup.find_all('healcode-widget')[0]['data-widget-id']
-        logger.info("FOUND:  %s" % soup.find_all(schedule_id))
-
-        # Pull the MindBody data directly
-        request_str = "https://widgets.healcode.com/widgets/schedules/" + schedule_id + "/print"
-        mind_body_request = Request(request_str)
-        schedule = urlopen(mind_body_request)
-        soup = BeautifulSoup(schedule.read())
-        class_list = soup.find_all('tr', {'class': 'hc_class'})
-        easton_classes = []
-        for class_field in class_list:
-            easton_class = EastonClass()
-            logger.info(class_field)
-            logger.info("CLASS NAME:  %s" % class_field.find('span', {'class': 'classname'}).text)
-            easton_class.name = class_field.find('span', {'class': 'classname'}).text
-            logger.info("START TIME:  %s" % class_field.find('span', {'class': 'hc_starttime'}).text)
-            easton_class.start_time = class_field.find('span', {'class': 'hc_starttime'}).text
-            logger.info("END TIME:  %s" % class_field.find('span', {'class': 'hc_endtime'}).text)
-            easton_class.end_time = class_field.find('span', {'class': 'hc_endtime'}).text
-            easton_classes.append(easton_class)
+        added_class_list = []
+        get_mb_daily_data("Littleton", "https://eastonbjj.com/littleton/schedule", added_class_list)
+        get_mb_daily_data("Denver", "https://eastonbjj.com/denver/schedule", added_class_list)
+        get_mb_daily_data("Boulder", "https://eastonbjj.com/boulder/schedule", added_class_list)
+        get_mb_daily_data("Centennial", "https://eastonbjj.com/centennial/schedule", added_class_list)
+        get_mb_daily_data("Arvada", "https://eastonbjj.com/arvada/schedule", added_class_list)
+        get_mb_daily_data("Aurora", "https://eastonbjj.com/aurora/schedule", added_class_list)
+        get_calendar_daily_data("Castle Rock", 'https://etc-castlerock.sites.zenplanner.com/calendar.cfm',
+                                added_class_list)
+        get_calendar_daily_data("Thornton", 'https://eastonbjjnorth.sites.zenplanner.com/calendar.cfm',
+                                added_class_list)
         template = loader.get_template('retriever/index.html')
         context = {
-            'easton_classes': easton_classes
+            'easton_classes': added_class_list
         }
     except HTTPError as e:
         logger.error(e.fp.read())
