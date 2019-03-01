@@ -1,11 +1,11 @@
 from django.http import HttpResponse
-from django.shortcuts import render
 from django.template import loader
 from bs4 import BeautifulSoup
 import logging
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
 from datetime import datetime
+import time
 import pytz
 
 logger = logging.getLogger('django')
@@ -19,9 +19,19 @@ class EastonClass:
         date = "Unspecified"
         start_time = "Unspecified"
         end_time = "Unspecified"
+        full_start_time = None
 
 
+#
+# Scrape class data from gyms that use zencalendar
+#
+# params:
+# gym_location:  string representing gym location ("Castle Rock", etc.)
+# webpage_location:  calendar webpage URL
+# added_class_list:  reference to list of classes found over all gyms so far, function adds to this
+#
 def get_calendar_daily_data(gym_location, webpage_location, added_class_list):
+
     easton_request = Request(webpage_location, headers={'User-Agent': 'lmccrone'})
     schedule = urlopen(easton_request)
     soup = BeautifulSoup(schedule.read())
@@ -54,10 +64,19 @@ def get_calendar_daily_data(gym_location, webpage_location, added_class_list):
         class_time_list = class_time.split(" - ")
         easton_class.start_time = class_time_list[0]
         easton_class.end_time = class_time_list[1]
+        easton_class.full_start_time = time.strptime(
+            easton_class.date + ' ' + easton_class.start_time, '%Y-%m-%d %I:%M %p')
         added_class_list.append(easton_class)
 
 
-# Get data from a MindBody daily page
+#
+# Get class data from a MindBody daily page
+#
+# params:
+# gym_location:  string representing gym location ("Centennial", "Boulder", etc.)
+# webpage_location:  easton page for daily schedule
+# added_class_list:  reference to current list of easton classes, function adds what it finds to this
+#
 def get_mb_daily_data(gym_location, webpage_location, added_class_list):
     # Pull the main schedule page on easton's website to get the internal MindBody link
     easton_request = Request(webpage_location, headers={'User-Agent': "lmccrone"})
@@ -67,7 +86,7 @@ def get_mb_daily_data(gym_location, webpage_location, added_class_list):
     schedule_id = soup.find_all('healcode-widget')[0]['data-widget-id']
     logger.info("FOUND:  %s" % soup.find_all(schedule_id))
 
-    # Pull the MindBody data directly
+    # Pull the MindBody data directly (this string is called using js on easton's page)
     request_str = "https://widgets.healcode.com/widgets/schedules/" + schedule_id + "/print"
     mind_body_request = Request(request_str)
     schedule = urlopen(mind_body_request)
@@ -86,13 +105,15 @@ def get_mb_daily_data(gym_location, webpage_location, added_class_list):
             easton_class.start_time = table_row.find('span', {'class': 'hc_starttime'}).text
             # [2:] - remove dash at beginning of end time
             easton_class.end_time = table_row.find('span', {'class': 'hc_endtime'}).text[2:]
+            easton_class.full_start_time = time.strptime(
+                easton_class.date + ' ' + easton_class.start_time, '%Y-%m-%d %I:%M %p')
             added_class_list.append(easton_class)
 
+        # Class category divider
         if 'group_by_class_type' in table_row.get('class'):
             current_category = table_row.find('td').text
 
 
-# Create your views here.
 def get_raw_data(request):
     try:
         added_class_list = []
@@ -107,6 +128,7 @@ def get_raw_data(request):
         get_calendar_daily_data("Thornton", 'https://eastonbjjnorth.sites.zenplanner.com/calendar.cfm',
                                 added_class_list)
         template = loader.get_template('retriever/index.html')
+        added_class_list.sort(key=lambda added_class: added_class.full_start_time)
         context = {
             'easton_classes': added_class_list
         }
