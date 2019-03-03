@@ -1,11 +1,13 @@
 <ul>
     {% for easton_class in easton_classes %}
         <p>
-            Location:  {{  easton_class.location }}
-            Category:  {{  easton_class.category }}
-            Name:  {{ easton_class.name }}
-            Date:  {{ easton_class.date }}
-            Start time:  {{ easton_class.start_time }}
+            Location:  {{  easton_class.location }}<br>
+            Category:  {{  easton_class.category }}<br>
+            Category enum:  {{  easton_class.category_enum }}<br>
+            Name:  {{ easton_class.name }}<br>
+            Requirements:  {{  easton_class.requirements }}<br>
+            Date:  {{ easton_class.date }}<br>
+            Start time:  {{ easton_class.start_time }}<br>
             End time:  {{  easton_class.end_time }}
         </p>
     {% endfor %}

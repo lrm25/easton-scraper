@@ -7,20 +7,137 @@ from urllib.error import HTTPError
 from datetime import datetime
 import time
 import pytz
+from enum import Enum
+import re
 
 logger = logging.getLogger('django')
 
 
+class EastonClassCategory(Enum):
+    MMA = 1
+    BJJ = 2
+    STRIKING = 3
+    WRESTLING = 4
+    LITTLE_TIGERS = 5
+    KIDS_BJJ = 6
+    KIDS_STRIKING = 7
+    CONDITIONING = 8
+    YOGA = 9
+    OTHER = 10
+    KIDS_WRESTLING = 11
+    NOT_SET = 12
+    OPEN_GYM = 13
+    PRIVATE_LESSON = 14
+
+
+class EastonRequirements(Enum):
+    YELLOW_SHIRT = 1
+    ORANGE_SHIRT = 2
+    GREEN_SHIRT = 3
+    TWO_STRIPES = 4
+    TWO_STRIPES_OR_WRESTLING_EXPERIENCE = 5
+    GREEN_SHIRT_AND_FOUR_STRIPES = 6
+    BLUE_BELT = 7
+    PURPLE_BELT = 8
+    NONE = 9
+    UNKNOWN = 10
+    INVITATION = 11
+    YELLOW_BELT = 12
+
+
 class EastonClass:
     def __init__(self):
-        location = "Unspecified"
-        category = "Unspecified"
-        name = "Unspecified"
-        date = "Unspecified"
-        start_time = "Unspecified"
-        end_time = "Unspecified"
-        full_start_time = None
+        self.location = "Unspecified"
+        self.category = "Unspecified"
+        self.category_enum = EastonClassCategory.NOT_SET
+        self.name = "Unspecified"
+        self.requirements = EastonRequirements.UNKNOWN
+        self.date = "Unspecified"
+        self.start_time = "Unspecified"
+        self.end_time = "Unspecified"
+        self.full_start_time = None
+        self.canceled = False
 
+
+# TODO - clean up
+def get_list_category(easton_class):
+    if "Youth BJJ" in easton_class.category:
+        easton_class.category_enum = EastonClassCategory.KIDS_BJJ
+        easton_class.requirements = EastonRequirements.YELLOW_BELT
+    elif "BJJ" in easton_class.category:
+        easton_class.category_enum = EastonClassCategory.BJJ
+        if "Randori" in easton_class.name:
+            if "All Levels" in easton_class.name:
+                easton_class.requirements = EastonRequirements.NONE
+            else:
+                easton_class.requirements = EastonRequirements.TWO_STRIPES
+        if "Adv/Int" in easton_class.name or \
+           "Intermediate" in easton_class.name:
+            easton_class.requirements = EastonRequirements.TWO_STRIPES
+        elif "Flow Roll" in easton_class.name or \
+             "Fundamentals" in easton_class.name or \
+             "Family" in easton_class.name or \
+             "All Levels" in easton_class.name or \
+             "All-levels" in easton_class.name:
+            easton_class.requirements = EastonRequirements.NONE
+    conditioning_pattern = re.compile(".*?Strength and Conditioning.*?")
+    if conditioning_pattern.match(easton_class.category):
+        easton_class.category_enum = EastonClassCategory.CONDITIONING
+        easton_class.requirements = EastonRequirements.NONE
+    open_gym_pattern = re.compile(".*?Open [Gg]ym.*?")
+    if open_gym_pattern.match(easton_class.category):
+        easton_class.category_enum = EastonClassCategory.OPEN_GYM
+        easton_class.requirements = EastonRequirements.NONE
+    if "Kids Muay Thai" in easton_class.category:
+        easton_class.category_enum = EastonClassCategory.KIDS_STRIKING
+        easton_class.requirements = EastonRequirements.NONE
+    elif "Muay Thai" in easton_class.category or "Striking" in easton_class.category:
+        easton_class.category_enum = EastonClassCategory.STRIKING
+        if "Advanced" in easton_class.name:
+            easton_class.requirements = EastonRequirements.ORANGE_SHIRT
+        if "green shirt" in easton_class.name:
+            easton_class.requirements = EastonRequirements.GREEN_SHIRT
+        elif "Muay Thai" in easton_class.name or \
+             "Thai Pad" in easton_class.name:
+            easton_class.requirements = EastonRequirements.YELLOW_SHIRT
+        elif "Kickboxing" in easton_class.name or \
+             "Open Mat" in easton_class.name or \
+             "Fundamentals of Striking" in easton_class.name:
+            easton_class.requirements = EastonRequirements.NONE
+        elif "Invite Only" in easton_class.name:
+            easton_class.requirements = EastonRequirements.INVITATION
+    little_tigers_pattern = re.compile(".*?Little [Tt]igers.*?")
+    if little_tigers_pattern.match(easton_class.category):
+        easton_class.category_enum = EastonClassCategory.LITTLE_TIGERS
+        easton_class.requirements = EastonRequirements.NONE
+    elif "Tigers" in easton_class.category:
+        easton_class.requirements = EastonRequirements.NONE
+    kids_wrestling_pattern = re.compile(".*?Wrestling [Ff]or [Yy]outh.*?")
+    if kids_wrestling_pattern.match(easton_class.name):
+        easton_class.category_enum = EastonClassCategory.KIDS_WRESTLING
+        easton_class.requirements = EastonRequirements.NONE
+
+
+# TODO - clean up
+def get_calendar_category(easton_class):
+    bjj_pattern = re.compile(".*?([Rr]andori|BJJ|No-Gi).*?")
+    if bjj_pattern.match(easton_class.name):
+        easton_class.category_enum = EastonClassCategory.BJJ
+    private_lesson_pattern = re.compile(".*?Private Lesson.*?")
+    if private_lesson_pattern.match(easton_class.name):
+        easton_class.category_enum = EastonClassCategory.PRIVATE_LESSON
+    muay_thai_pattern = re.compile(".*?(Muay [Tt]hai|[Kk]ickboxing).*?")
+    if muay_thai_pattern.match(easton_class.name):
+        easton_class.category_enum = EastonClassCategory.STRIKING
+    kids_muay_thai_pattern = re.compile(".*?Kids [Mm]uay [Tt]hai.*?")
+    if kids_muay_thai_pattern.match(easton_class.name):
+        easton_class.category_enum = EastonClassCategory.KIDS_STRIKING
+    kids_muay_thai_pattern = re.compile(".*?Little Tigers.*?")
+    if kids_muay_thai_pattern.match(easton_class.name):
+        easton_class.category_enum = EastonClassCategory.LITTLE_TIGERS
+    kids_bjj_pattern = re.compile(".*?Tigers.*?")
+    if easton_class.location == "Thornton" and kids_bjj_pattern.match(easton_class.name):
+        easton_class.category_enum = EastonClassCategory.KIDS_BJJ
 
 #
 # Scrape class data from gyms that use zencalendar
@@ -66,6 +183,7 @@ def get_calendar_daily_data(gym_location, webpage_location, added_class_list):
         easton_class.end_time = class_time_list[1]
         easton_class.full_start_time = time.strptime(
             easton_class.date + ' ' + easton_class.start_time, '%Y-%m-%d %I:%M %p')
+        get_calendar_category(easton_class)
         added_class_list.append(easton_class)
 
 
@@ -107,6 +225,7 @@ def get_mb_daily_data(gym_location, webpage_location, added_class_list):
             easton_class.end_time = table_row.find('span', {'class': 'hc_endtime'}).text[2:]
             easton_class.full_start_time = time.strptime(
                 easton_class.date + ' ' + easton_class.start_time, '%Y-%m-%d %I:%M %p')
+            get_list_category(easton_class)
             added_class_list.append(easton_class)
 
         # Class category divider
