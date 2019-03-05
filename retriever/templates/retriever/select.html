@@ -1,0 +1,13 @@
+<h3>Select</h3>
+<form action="/get-checks/" method="get">
+    {% for gym in easton_gym %}
+        <input type="checkbox" name="gym" value={{ gym }}>{{ gym }}<br>
+    {% endfor %}
+    {% for class_type in easton_class_type %}
+        <input type="checkbox" name="class-type" value={{ class_type }}>{{ class_type }}<br>
+    {% endfor %}
+    {% for requirements in easton_requirements %}
+        <input type="checkbox" name="requirements" value={{ requirements }}>{{ requirements }}<br>
+    {% endfor %}
+    <input type="submit" value="Submit">
+</form>
