@@ -1,9 +1,10 @@
 from django.http import HttpResponse
+from . import models
 from django.template import loader
 from bs4 import BeautifulSoup
 import logging
 from urllib.request import urlopen, Request
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from datetime import datetime, timedelta
 import time
 import pytz
@@ -71,6 +72,24 @@ class EastonRequirements(Enum):
     BLUE_SHIRT = 19
 
 
+class EastonMbCalendarPage:
+
+    def __init__(self, location, page_url):
+        self._location = location
+        self._page_url = page_url
+
+    #
+    # Get the schedule ID for the inner MindBody calendar
+    # (Easton's page has a javascript link which loads the schedule, we have to connect to mindbody's site
+    #  with this ID to get the class data)
+    def get_inner_mbc_id(self):
+        easton_request = Request(self._page_url, headers={'User-Agent': "lmccrone"})
+        schedule = urlopen(easton_request)
+        soup = BeautifulSoup(schedule.read())
+        schedule_id = soup.find_all('healcode-widget')[0]['data-widget-id']
+        return schedule_id
+
+
 class MindBodyCalendar:
 
     def __init__(self, location, main_page):
@@ -118,6 +137,7 @@ class MindBodyDailyCalendar:
 
             if 'hc_class' in table_row.get('class'):
                 easton_class = EastonClass()
+                easton_class.id = table_row.get('data-hc-mbo-class-id')
                 easton_class.location = self._location
                 easton_class.category = current_category
                 easton_class.name = table_row.find('span', {'class': 'classname'}).text
@@ -126,7 +146,7 @@ class MindBodyDailyCalendar:
                 # [2:] - remove dash at beginning of end time
                 easton_class.end_time = table_row.find('span', {'class': 'hc_endtime'}).text[2:]
                 easton_class.full_start_time = time.strptime(
-                    easton_class.date + ' ' + easton_class.start_time, '%Y-%m-%d %I:%M %p')
+                    easton_class.date + ' ' + easton_class.start_time, '%Y-%m-%d %I:%M %p %z')
                 get_list_category(easton_class)
                 daily_class_list.append(easton_class)
 
@@ -152,6 +172,12 @@ class EastonClass:
         self.end_time = "Unspecified"
         self.full_start_time = None
         self.canceled = False
+        self.id = None
+
+
+def retrieve_data(request):
+    models.retrieve_data_from_web(1)
+    return HttpResponse("<html><title>Success</title><body>{}</body></html>".format("Retrieval successful"))
 
 
 # TODO - clean up
@@ -353,9 +379,11 @@ def get_calendar_daily_data(gym_location, webpage_location, added_class_list, fi
         for calendar_class in calendar_classes:
 
             # Class info URL query is in single quotes in 'onclick' attribute
+            # FORMAT:  onclick="checkLoggedId('enrollment.cfm?appointmentId=<id>')"
             class_link_attr = calendar_class.get('onclick')
             logger.info("CLASS LINK ATTR: " + class_link_attr)
             class_link_query = class_link_attr.split('\'')[1]
+            class_id = class_link_query.split('?')[1].split('=')[1]
             class_info_request = Request(webpage_base + class_link_query)
             class_info = urlopen(class_info_request)
             class_soup = BeautifulSoup(class_info.read())
@@ -369,6 +397,7 @@ def get_calendar_daily_data(gym_location, webpage_location, added_class_list, fi
             easton_class = EastonClass()
             easton_class.location = gym_location
             easton_class.category = calendar_class.get('class')[2]
+            easton_class.id = class_id
             easton_class.name = calendar_class.text
             easton_class.date = date_string
             class_time_list = class_time.split(" - ")
@@ -400,7 +429,6 @@ def get_raw_data(request):
         #arvada_calendar = MindBodyCalendar("Arvada", "https://eastonbjj.com/arvada/schedule")
         #added_class_list.extend(arvada_calendar.get_class_data(today_date, 7))
 
-        #get_mb_daily_data("Aurora", "https://eastonbjj.com/aurora/schedule", added_clas_list)
         aurora_calendar = MindBodyCalendar("Aurora", "https://eastonbjj.com/aurora/schedule")
         added_class_list.extend(aurora_calendar.get_class_data(today_date, 7))
 
