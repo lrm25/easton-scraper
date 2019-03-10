@@ -176,7 +176,8 @@ class EastonClass:
 
 
 def retrieve_data(request):
-    models.retrieve_data_from_web(1)
+    models.retrieve_data_from_web(models.NUMBER_RETRIEVAL_DAYS)
+    # NOTE:  let django return error if there's a failure
     return HttpResponse("<html><title>Success</title><body>{}</body></html>".format("Retrieval successful"))
 
 
@@ -437,7 +438,7 @@ def get_raw_data(request):
         #get_calendar_daily_data("Thornton", 'https://eastonbjjnorth.sites.zenplanner.com/calendar.cfm',
         #                        added_class_list, today_date, 7)
         template = loader.get_template('retriever/index.html')
-        added_class_list.sort(key=lambda added_class: added_class.full_start_time)
+        added_class_list.sort(key=lambda added_class: added_class.start_time)
         context = {
             'easton_classes': added_class_list
         }
@@ -488,9 +489,9 @@ def get_class_list(today_date, gym_location):
 
 def get_select_page(request):
     context = {
-        'easton_class_type': EastonClassCategory,
-        'easton_gym': EastonGym,
-        'easton_requirements': EastonRequirements
+        'easton_class_type': models.EastonClassCategory,
+        'easton_gym': models.EastonGym,
+        'easton_requirements': models.EastonRequirements
     }
     template = loader.get_template('retriever/select.html')
     return HttpResponse(template.render(context, request))
@@ -498,23 +499,42 @@ def get_select_page(request):
 
 def get_checks(request):
 
-    easton_class_list = []
-    today_date = datetime.now(pytz.timezone('US/Mountain'))
-
-    # TODO - optimize
-    if request.GET.get('gym') and request.GET.get('class-type') and request.GET.get('requirements'):
-        for gym in request.GET.getlist('gym'):
-            easton_class_list.extend(get_class_list(today_date, gym))
-        logger.debug("BEGINNING CLASS SIZE: {}".format(len(easton_class_list)))
-        easton_class_list[:] = [easton_class for easton_class in easton_class_list if
-                                str(easton_class.category_enum) in request.GET.getlist('class-type')]
-        logger.debug("SIZE AFTER TRIMMING: {}".format(len(easton_class_list)))
-        easton_class_list[:] = [easton_class for easton_class in easton_class_list if
-                                str(easton_class.requirements) in request.GET.getlist('requirements')]
+    # If no specific values are specified for a category, return all values for that category
+    gym_list = [gym.split('.')[1] for gym in request.GET.getlist('gym')] if request.GET.get('gym') else \
+        [str(e.name) for e in models.EastonGym]
+    class_type = [class_type.split('.')[1] for class_type in request.GET.getlist('class-type')] \
+        if request.GET.getlist('class-type') else [str(e.name) for e in models.EastonClassCategory]
+    requirements = [requirements.split('.')[1] for requirements in request.GET.getlist('requirements')] \
+        if request.GET.getlist('requirements') else [str(e.name) for e in models.EastonRequirements]
+    easton_class_list = models.get_classes(gym_list, class_type, requirements)
 
     template = loader.get_template('retriever/index.html')
-    easton_class_list.sort(key=lambda added_class: added_class.full_start_time)
+    easton_class_list.sort(key=lambda added_class: added_class.start_time)
     context = {
         'easton_classes': easton_class_list
     }
     return HttpResponse(template.render(context, request))
+
+
+#def get_checks(request):
+#
+#    easton_class_list = []
+#    today_date = datetime.now(pytz.timezone('US/Mountain'))
+#
+#    # TODO - optimize
+#    if request.GET.get('gym') and request.GET.get('class-type') and request.GET.get('requirements'):
+#        for gym in request.GET.getlist('gym'):
+#            easton_class_list.extend(get_class_list(today_date, gym))
+#        logger.debug("BEGINNING CLASS SIZE: {}".format(len(easton_class_list)))
+#        easton_class_list[:] = [easton_class for easton_class in easton_class_list if
+#                                str(easton_class.category_enum) in request.GET.getlist('class-type')]
+#        logger.debug("SIZE AFTER TRIMMING: {}".format(len(easton_class_list)))
+#        easton_class_list[:] = [easton_class for easton_class in easton_class_list if
+#                                str(easton_class.requirements) in request.GET.getlist('requirements')]
+#
+#    template = loader.get_template('retriever/index.html')
+#    easton_class_list.sort(key=lambda added_class: added_class.full_start_time)
+#    context = {
+#        'easton_classes': easton_class_list
+#    }
+#    return HttpResponse(template.render(context, request))
